@@ -18,8 +18,8 @@ BUCKET_ID = 'in.c-device-inventory'
 TABLE_ID = 'in.c-device-inventory.devices'
 
 ADMIN_EMAILS = [
+    'petra.griffin@keboola.com',
     'pavel.synek@keboola.com',
-    'admin@keboola.com',
 ]
 
 

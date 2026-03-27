@@ -17,6 +17,11 @@ STORAGE_TOKEN = (
 BUCKET_ID = 'in.c-device-inventory'
 TABLE_ID = 'in.c-device-inventory.devices'
 
+ADMIN_EMAILS = [
+    'pavel.synek@keboola.com',
+    'admin@keboola.com',
+]
+
 
 def get_user_email():
     for header in ['X-Forwarded-User', 'X-Forwarded-Email',
@@ -69,7 +74,8 @@ def ensure_bucket_and_table():
 @app.route('/')
 def index():
     user_email = get_user_email()
-    return render_template('index.html', user_email=user_email)
+    is_admin = user_email.lower() in [e.lower() for e in ADMIN_EMAILS]
+    return render_template('index.html', user_email=user_email, is_admin=is_admin)
 
 
 @app.route('/api/devices', methods=['GET'])
@@ -96,6 +102,30 @@ def get_devices():
             .reset_index(drop=True)
         )
         return jsonify(user_df.to_dict(orient='records'))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/devices', methods=['GET'])
+def get_all_devices():
+    user_email = get_user_email()
+    if user_email.lower() not in [e.lower() for e in ADMIN_EMAILS]:
+        return jsonify({'error': 'Forbidden'}), 403
+    if not STORAGE_TOKEN:
+        return jsonify([])
+    try:
+        r = _storage_get(
+            f'/v2/storage/tables/{TABLE_ID}/data-preview',
+            params={'limit': 5000}
+        )
+        if r.status_code == 404:
+            return jsonify([])
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.text))
+        if df.empty or 'submitted_by' not in df.columns:
+            return jsonify([])
+        df = df.sort_values('submitted_at', ascending=False).reset_index(drop=True)
+        return jsonify(df[['submitted_by', 'device_name', 'serial_number', 'submitted_at']].to_dict(orient='records'))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

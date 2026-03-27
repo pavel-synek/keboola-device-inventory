@@ -265,6 +265,65 @@
     .feedback.success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; display: block; }
     .feedback.error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; display: block; }
 
+    /* ── Admin badge ── */
+    .admin-badge {
+      display: inline-block;
+      background: #0d1f3c;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+
+    /* ── Admin panel ── */
+    .admin-panel {
+      background: #f8faff;
+      border: 1.5px solid #cde0ff;
+      border-radius: 12px;
+      padding: 20px 24px 24px;
+      margin-bottom: 36px;
+    }
+    .admin-panel-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1a4b8c;
+      letter-spacing: 0.3px;
+      margin-bottom: 14px;
+    }
+    .admin-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .admin-table thead tr { border-bottom: 2px solid #dce8f8; }
+    .admin-table thead th {
+      text-align: left;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: #7a9cc4;
+      padding: 0 14px 10px 0;
+    }
+    .admin-table tbody tr { border-bottom: 1px solid #edf3fc; }
+    .admin-table tbody tr:last-child { border-bottom: none; }
+    .admin-table tbody tr:hover { background: #eef4ff; }
+    .admin-table tbody td {
+      padding: 10px 14px 10px 0;
+      color: #2d3e5a;
+      vertical-align: middle;
+    }
+    .admin-email {
+      font-size: 12px;
+      color: #228DFF;
+      font-weight: 500;
+    }
+
     /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner {
@@ -295,7 +354,7 @@
     </div>
 
     <!-- Heading -->
-    <h1>Register Your Devices</h1>
+    <h1>Register Your Devices{% if is_admin %}<span class="admin-badge">Admin</span>{% endif %}</h1>
     <p class="subheading">Submit your work device details below. Each entry is automatically linked to your Keboola account.</p>
 
     <!-- User identity -->
@@ -309,6 +368,18 @@
     <div class="email-field">
       <label class="field-label" for="manual-email">Your email address</label>
       <input type="text" id="manual-email" placeholder="yourname@keboola.com" style="max-width:340px">
+    </div>
+    {% endif %}
+
+    {% if is_admin %}
+    <!-- Admin panel -->
+    <div class="admin-panel">
+      <div class="admin-panel-title">All Registered Devices</div>
+      <div id="admin-devices">
+        <div class="table-loading">
+          <span class="spinner gray"></span> Loading…
+        </div>
+      </div>
     </div>
     {% endif %}
 
@@ -341,6 +412,47 @@
 
   <script>
     const USER_EMAIL = {{ user_email | tojson }};
+    const IS_ADMIN = {{ is_admin | tojson }};
+
+    // ── Admin: all devices ────────────────────────────────────────────────────
+    async function loadAdminDevices() {
+      const container = document.getElementById('admin-devices');
+      if (!container) return;
+      try {
+        const res = await fetch('/api/admin/devices');
+        const data = await res.json();
+
+        if (!Array.isArray(data) || data.length === 0) {
+          container.innerHTML = '<p class="empty-state">No devices registered yet.</p>';
+          return;
+        }
+
+        const rows = data.map(d => `
+          <tr>
+            <td><span class="admin-email">${esc(d.submitted_by)}</span></td>
+            <td><span class="device-name">${esc(d.device_name)}</span></td>
+            <td><span class="serial-badge">${esc(d.serial_number)}</span></td>
+            <td>${esc(d.submitted_at)}</td>
+          </tr>
+        `).join('');
+
+        container.innerHTML = `
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Device Name</th>
+                <th>Serial Number</th>
+                <th>Registered At</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      } catch (e) {
+        container.innerHTML = '<p class="empty-state">Could not load devices.</p>';
+      }
+    }
 
     // ── Existing devices ──────────────────────────────────────────────────────
     async function loadExistingDevices() {
@@ -469,6 +581,7 @@
           showSuccess(`✅ ${data.count} device(s) registered successfully!`);
           resetForm();
           loadExistingDevices();
+          if (IS_ADMIN) loadAdminDevices();
         }
       } catch (e) {
         showError('Network error. Please try again.');
@@ -511,6 +624,7 @@
     addRow();
     if (USER_EMAIL) loadExistingDevices();
     else document.getElementById('existing-devices').innerHTML = '<p class="empty-state">Enter your email above to see registered devices.</p>';
+    if (IS_ADMIN) loadAdminDevices();
   </script>
 </body>
 </html>

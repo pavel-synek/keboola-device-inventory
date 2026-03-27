@@ -465,7 +465,11 @@
         const res = await fetch('/api/admin/devices');
         const data = await res.json();
 
-        if (!Array.isArray(data) || data.length === 0) {
+        if (!Array.isArray(data)) {
+          container.innerHTML = `<p class="empty-state">API error: ${JSON.stringify(data)}</p>`;
+          return;
+        }
+        if (data.length === 0) {
           container.innerHTML = '<p class="empty-state">No devices registered yet.</p>';
           return;
         }

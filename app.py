@@ -17,6 +17,8 @@ STORAGE_TOKEN = (
 BUCKET_ID = 'in.c-device-inventory'
 TABLE_ID = 'in.c-device-inventory.devices'
 EMPLOYEES_TABLE_ID = 'in.c-keboola-ex-google-drive-01kmq8vxhe01pzb3rdz37raz6m.seznam-zamestnancu-3_2026-SEZNAM-ZAMESTNANCU'
+FLOW_ID = '01kmqd9xqyzxs9yy198erre1de'
+QUEUE_URL = os.environ.get('KBC_QUEUE_URL', 'https://queue.us-east4.gcp.keboola.com')
 
 ADMIN_EMAILS = [
     'petra.griffin@keboola.com',
@@ -47,6 +49,24 @@ def _storage_get(path, **kwargs):
         headers={'X-StorageApi-Token': STORAGE_TOKEN},
         **kwargs
     )
+
+
+def _trigger_flow():
+    """Trigger the device inventory flow via Keboola Queue API."""
+    r = requests.post(
+        f'{QUEUE_URL.rstrip("/")}/jobs',
+        headers={
+            'X-StorageApi-Token': STORAGE_TOKEN,
+            'Content-Type': 'application/json',
+        },
+        json={
+            'component': 'keboola.orchestrator',
+            'mode': 'run',
+            'config': FLOW_ID,
+        }
+    )
+    r.raise_for_status()
+    return r.json()
 
 
 
@@ -237,6 +257,9 @@ def post_devices():
             data={'incremental': '1'}
         )
         r.raise_for_status()
+
+        _trigger_flow()
+
         return jsonify({'success': True, 'count': len(devices)})
     except requests.HTTPError as e:
         return jsonify({'error': f'API error {e.response.status_code}: {e.response.text}'}), 500

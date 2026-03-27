@@ -347,6 +347,38 @@
       font-weight: 500;
     }
 
+    /* ── Admin tabs ── */
+    .admin-summary {
+      font-size: 13px;
+      color: #5a7196;
+      margin-bottom: 14px;
+      font-weight: 500;
+      min-height: 20px;
+    }
+    .admin-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 16px;
+      border-radius: 20px;
+      border: 1.5px solid #cde0ff;
+      background: #fff;
+      color: #5a7196;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab-btn.active {
+      background: #228DFF;
+      border-color: #228DFF;
+      color: #fff;
+    }
+    .tab-btn:hover:not(.active) { background: #e8f2ff; border-color: #228DFF; color: #228DFF; }
+
     /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner {
@@ -398,14 +430,18 @@
     <!-- Admin panel -->
     <div class="admin-panel">
       <div class="admin-panel-header">
-        <div class="admin-panel-title">All Registered Devices</div>
+        <div class="admin-panel-title">Device Inventory Status</div>
         <button class="btn-download" id="btn-download" disabled onclick="downloadAdminCSV()">&#8595; Download CSV</button>
       </div>
-      <div id="admin-devices">
-        <div class="table-loading">
-          <span class="spinner gray"></span> Loading…
-        </div>
+      <div id="admin-summary" class="admin-summary">
+        <span class="spinner gray"></span> Loading…
       </div>
+      <div class="admin-tabs" id="admin-tabs" style="display:none">
+        <button class="tab-btn active" id="tab-btn-pending" onclick="showTab('pending')">⏳ Čeká <span id="count-pending">–</span></button>
+        <button class="tab-btn" id="tab-btn-completed" onclick="showTab('completed')">✅ Splněno <span id="count-completed">–</span></button>
+      </div>
+      <div id="tab-pending"></div>
+      <div id="tab-completed" style="display:none"></div>
     </div>
     {% endif %}
 
@@ -440,15 +476,31 @@
     const USER_EMAIL = {{ user_email | tojson }};
     const IS_ADMIN = {{ is_admin | tojson }};
 
-    // ── Admin: all devices ────────────────────────────────────────────────────
-    let adminDevicesCache = [];
+    // ── Admin: status overview ────────────────────────────────────────────────
+    let adminStatusCache = null;
+
+    function showTab(tab) {
+      document.getElementById('tab-pending').style.display = tab === 'pending' ? '' : 'none';
+      document.getElementById('tab-completed').style.display = tab === 'completed' ? '' : 'none';
+      document.getElementById('tab-btn-pending').classList.toggle('active', tab === 'pending');
+      document.getElementById('tab-btn-completed').classList.toggle('active', tab === 'completed');
+    }
 
     function downloadAdminCSV() {
-      if (!adminDevicesCache.length) return;
-      const header = ['Employee', 'Device Name', 'Serial Number', 'Registered At'];
-      const csvRows = [header, ...adminDevicesCache.map(d => [
-        d.submitted_by, d.device_name, d.serial_number, d.submitted_at
-      ])].map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+      if (!adminStatusCache) return;
+      const header = ['Name', 'Email', 'Device Name', 'Serial Number', 'Registered At'];
+      const rows = [];
+      for (const emp of adminStatusCache.completed) {
+        for (const d of emp.devices) {
+          rows.push([emp.name, emp.email, d.device_name, d.serial_number, d.submitted_at]);
+        }
+      }
+      for (const emp of adminStatusCache.pending) {
+        rows.push([emp.name, emp.email, '', '', '']);
+      }
+      const csvRows = [header, ...rows].map(row =>
+        row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
+      );
       const blob = new Blob([csvRows.join('\r\n')], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -458,46 +510,69 @@
       URL.revokeObjectURL(url);
     }
 
-    async function loadAdminDevices() {
-      const container = document.getElementById('admin-devices');
-      if (!container) return;
+    async function loadAdminStatus() {
+      const summary = document.getElementById('admin-summary');
+      const tabs = document.getElementById('admin-tabs');
+      if (!summary) return;
       try {
-        const res = await fetch('/api/admin/devices');
+        const res = await fetch('/api/admin/status');
         const data = await res.json();
 
-        if (!Array.isArray(data) || data.length === 0) {
-          container.innerHTML = '<p class="empty-state">No devices registered yet.</p>';
+        if (data.error) {
+          summary.innerHTML = `<span style="color:#991b1b">${esc(data.error)}</span>`;
           return;
         }
 
-        adminDevicesCache = data;
+        adminStatusCache = data;
+        summary.textContent = `${data.completed_count} z ${data.total} zaměstnanců odesláno`;
+        document.getElementById('count-pending').textContent = data.pending.length;
+        document.getElementById('count-completed').textContent = data.completed_count;
+        tabs.style.display = '';
+
         const btn = document.getElementById('btn-download');
         if (btn) btn.disabled = false;
 
-        const rows = data.map(d => `
-          <tr>
-            <td><span class="admin-email">${esc(d.submitted_by)}</span></td>
-            <td><span class="device-name">${esc(d.device_name)}</span></td>
-            <td><span class="serial-badge">${esc(d.serial_number)}</span></td>
-            <td>${esc(d.submitted_at)}</td>
-          </tr>
-        `).join('');
+        // Pending tab
+        const pendingEl = document.getElementById('tab-pending');
+        if (data.pending.length === 0) {
+          pendingEl.innerHTML = '<p class="empty-state">Všichni zaměstnanci již odesláno. 🎉</p>';
+        } else {
+          const rows = data.pending.map(e => `
+            <tr>
+              <td>${esc(e.name)}</td>
+              <td><span class="admin-email">${esc(e.email)}</span></td>
+            </tr>
+          `).join('');
+          pendingEl.innerHTML = `
+            <table class="admin-table">
+              <thead><tr><th>Jméno</th><th>Email</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `;
+        }
 
-        container.innerHTML = `
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Device Name</th>
-                <th>Serial Number</th>
-                <th>Registered At</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        `;
+        // Completed tab
+        const completedEl = document.getElementById('tab-completed');
+        if (data.completed.length === 0) {
+          completedEl.innerHTML = '<p class="empty-state">Zatím žádné záznamy.</p>';
+        } else {
+          const rows = data.completed.map(e => `
+            <tr>
+              <td>${esc(e.name)}</td>
+              <td><span class="admin-email">${esc(e.email)}</span></td>
+              <td>${e.devices.map(d => `<span class="device-name">${esc(d.device_name)}</span> <span class="serial-badge">${esc(d.serial_number)}</span>`).join('<br>')}</td>
+              <td style="font-size:12px;color:#7a8ba8">${esc(e.devices[0]?.submitted_at ?? '')}</td>
+            </tr>
+          `).join('');
+          completedEl.innerHTML = `
+            <table class="admin-table">
+              <thead><tr><th>Jméno</th><th>Email</th><th>Zařízení</th><th>Odesláno</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `;
+        }
       } catch (e) {
-        container.innerHTML = '<p class="empty-state">Could not load devices.</p>';
+        summary.innerHTML = '<span style="color:#991b1b">Could not load status.</span>';
       }
     }
 
@@ -628,7 +703,7 @@
           showSuccess(`✅ ${data.count} device(s) registered successfully!`);
           resetForm();
           loadExistingDevices();
-          if (IS_ADMIN) loadAdminDevices();
+          if (IS_ADMIN) loadAdminStatus();
         }
       } catch (e) {
         showError('Network error. Please try again.');
@@ -671,7 +746,7 @@
     addRow();
     if (USER_EMAIL) loadExistingDevices();
     else document.getElementById('existing-devices').innerHTML = '<p class="empty-state">Enter your email above to see registered devices.</p>';
-    if (IS_ADMIN) loadAdminDevices();
+    if (IS_ADMIN) loadAdminStatus();
   </script>
 </body>
 </html>

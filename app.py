@@ -16,6 +16,7 @@ STORAGE_TOKEN = (
 )
 BUCKET_ID = 'in.c-device-inventory'
 TABLE_ID = 'in.c-device-inventory.devices'
+EMPLOYEES_TABLE_ID = 'in.c-keboola_ex_google_drive_01kmq8vxhe01pzb3rdz37raz6m.seznam-zamestnancu-3_2026-SEZNAM-ZAMESTNANCU'
 
 ADMIN_EMAILS = [
     'petra.griffin@keboola.com',
@@ -47,6 +48,25 @@ def _storage_get(path, **kwargs):
         **kwargs
     )
 
+
+
+def _load_employees():
+    """Load employee list from Keboola Storage. Returns list of {name, email} dicts."""
+    r = _storage_get(
+        f'/v2/storage/tables/{EMPLOYEES_TABLE_ID}/data-preview',
+        params={'limit': 1000}
+    )
+    if r.status_code == 404:
+        return []
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text))
+    if df.empty or 'Work_Email' not in df.columns:
+        return []
+    return [
+        {'name': row['Last_name_First_name'], 'email': row['Work_Email']}
+        for _, row in df.iterrows()
+        if pd.notna(row['Work_Email'])
+    ]
 
 
 def ensure_bucket_and_table():
@@ -127,6 +147,55 @@ def get_all_devices():
             return jsonify([])
         df = df.sort_values('submitted_at', ascending=False).reset_index(drop=True)
         return jsonify(df[['submitted_by', 'device_name', 'serial_number', 'submitted_at']].to_dict(orient='records'))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/status', methods=['GET'])
+def get_admin_status():
+    user_email = get_user_email()
+    if user_email.lower() not in [e.lower() for e in ADMIN_EMAILS]:
+        return jsonify({'error': 'Forbidden'}), 403
+    if not STORAGE_TOKEN:
+        return jsonify({'error': 'Storage token not configured'}), 500
+    try:
+        employees = _load_employees()
+
+        r = _storage_get(
+            f'/v2/storage/tables/{TABLE_ID}/data-preview',
+            params={'limit': 1000}
+        )
+        if r.status_code == 404:
+            devices_df = pd.DataFrame(columns=['submitted_by', 'device_name', 'serial_number', 'submitted_at'])
+        else:
+            r.raise_for_status()
+            devices_df = pd.read_csv(io.StringIO(r.text))
+            if devices_df.empty or 'submitted_by' not in devices_df.columns:
+                devices_df = pd.DataFrame(columns=['submitted_by', 'device_name', 'serial_number', 'submitted_at'])
+
+        submitted_emails = {e.lower() for e in devices_df['submitted_by'].dropna()}
+
+        completed = []
+        pending = []
+        for emp in employees:
+            emp_email = emp['email'].lower()
+            if emp_email in submitted_emails:
+                emp_devices = (
+                    devices_df[devices_df['submitted_by'].str.lower() == emp_email]
+                    [['device_name', 'serial_number', 'submitted_at']]
+                    .sort_values('submitted_at', ascending=False)
+                    .to_dict(orient='records')
+                )
+                completed.append({'name': emp['name'], 'email': emp['email'], 'devices': emp_devices})
+            else:
+                pending.append({'name': emp['name'], 'email': emp['email']})
+
+        return jsonify({
+            'total': len(employees),
+            'completed_count': len(completed),
+            'completed': completed,
+            'pending': pending,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

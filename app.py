@@ -87,7 +87,7 @@ def get_devices():
     try:
         r = _storage_get(
             f'/v2/storage/tables/{TABLE_ID}/data-preview',
-            params={'limit': 1000}
+            params={'limit': 150}
         )
         if r.status_code == 404:
             return jsonify([])

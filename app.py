@@ -60,7 +60,7 @@ def _trigger_flow():
             'Content-Type': 'application/json',
         },
         json={
-            'component': 'keboola.orchestrator',
+            'component': 'keboola.flow',
             'mode': 'run',
             'config': FLOW_ID,
         }

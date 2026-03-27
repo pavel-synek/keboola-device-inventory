@@ -61,7 +61,6 @@ def _trigger_flow():
         },
         json={
             'component': 'keboola.flow',
-            'mode': 'run',
             'config': FLOW_ID,
         }
     )

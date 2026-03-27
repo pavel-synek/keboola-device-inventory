@@ -288,13 +288,36 @@
       padding: 20px 24px 24px;
       margin-bottom: 36px;
     }
+    .admin-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
     .admin-panel-title {
       font-size: 13px;
       font-weight: 700;
       color: #1a4b8c;
       letter-spacing: 0.3px;
-      margin-bottom: 14px;
     }
+    .btn-download {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      color: #1a4b8c;
+      background: #ffffff;
+      border: 1.5px solid #9ec5f5;
+      border-radius: 7px;
+      padding: 5px 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .btn-download:hover { background: #e8f2ff; border-color: #228DFF; color: #228DFF; }
+    .btn-download:disabled { opacity: 0.4; cursor: not-allowed; }
     .admin-table {
       width: 100%;
       border-collapse: collapse;
@@ -374,7 +397,10 @@
     {% if is_admin %}
     <!-- Admin panel -->
     <div class="admin-panel">
-      <div class="admin-panel-title">All Registered Devices</div>
+      <div class="admin-panel-header">
+        <div class="admin-panel-title">All Registered Devices</div>
+        <button class="btn-download" id="btn-download" disabled onclick="downloadAdminCSV()">&#8595; Download CSV</button>
+      </div>
       <div id="admin-devices">
         <div class="table-loading">
           <span class="spinner gray"></span> Loading…
@@ -415,6 +441,23 @@
     const IS_ADMIN = {{ is_admin | tojson }};
 
     // ── Admin: all devices ────────────────────────────────────────────────────
+    let adminDevicesCache = [];
+
+    function downloadAdminCSV() {
+      if (!adminDevicesCache.length) return;
+      const header = ['Employee', 'Device Name', 'Serial Number', 'Registered At'];
+      const csvRows = [header, ...adminDevicesCache.map(d => [
+        d.submitted_by, d.device_name, d.serial_number, d.submitted_at
+      ])].map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+      const blob = new Blob([csvRows.join('\r\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `device-inventory-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
     async function loadAdminDevices() {
       const container = document.getElementById('admin-devices');
       if (!container) return;
@@ -426,6 +469,10 @@
           container.innerHTML = '<p class="empty-state">No devices registered yet.</p>';
           return;
         }
+
+        adminDevicesCache = data;
+        const btn = document.getElementById('btn-download');
+        if (btn) btn.disabled = false;
 
         const rows = data.map(d => `
           <tr>

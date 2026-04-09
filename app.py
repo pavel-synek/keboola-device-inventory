@@ -101,12 +101,13 @@ def ensure_bucket_and_table():
     if r.status_code not in (200, 201, 400, 422):
         r.raise_for_status()
 
+    table_name = TABLE_ID.split('.')[-1]
     r = _storage_post(
         f'/v2/storage/buckets/{BUCKET_ID}/tables',
         files={'data': ('data.csv',
                         b'submitted_by,device_name,serial_number,submitted_at,device_id\n',
                         'text/csv')},
-        data={'name': 'devices'}
+        data={'name': table_name}
     )
     if r.status_code not in (200, 201, 400, 422):
         r.raise_for_status()
@@ -127,7 +128,7 @@ def get_devices():
     try:
         r = _storage_get(
             f'/v2/storage/tables/{TABLE_ID}/data-preview',
-            params={'limit': 150}
+            params={'limit': 1000}
         )
         if r.status_code == 404:
             return jsonify([])

@@ -16,7 +16,7 @@ STORAGE_TOKEN = (
     os.environ.get('STORAGE_API_TOKEN', '')
 )
 BUCKET_ID = 'in.c-device-inventory'
-TABLE_ID = 'in.c-device-inventory.devices'
+TABLE_ID = 'in.c-device-inventory.devices_ids'
 EMPLOYEES_TABLE_ID = 'in.c-keboola-ex-google-drive-01kmq8vxhe01pzb3rdz37raz6m.seznam-zamestnancu-3_2026-SEZNAM-ZAMESTNANCU'
 FLOW_ID = '01kmqd9xqyzxs9yy198erre1de'
 QUEUE_URL = os.environ.get('KBC_QUEUE_URL', 'https://queue.us-east4.gcp.keboola.com')

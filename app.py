@@ -143,7 +143,7 @@ def get_devices():
             df['device_id'] = df['device_id'].replace('', None)
             cols.append('device_id')
         user_df = (
-            df[df['submitted_by'] == user_email][cols]
+            df[df['submitted_by'].str.lower() == user_email.lower()][cols]
             .sort_values('submitted_at', ascending=False)
             .reset_index(drop=True)
         )

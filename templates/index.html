@@ -643,8 +643,18 @@
       const container = document.getElementById('existing-devices');
       try {
         const res = await fetch('/api/devices');
-        const data = await res.json();
-
+        const rawText = await res.text();
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (parseErr) {
+          container.innerHTML = `<p class="empty-state" style="color:#991b1b">JSON parse error: ${esc(parseErr.message)}<br><pre style="font-size:11px;white-space:pre-wrap;overflow:auto">${esc(rawText.slice(0, 500))}</pre></p>`;
+          return;
+        }
+        if (!res.ok || data.error) {
+          container.innerHTML = `<p class="empty-state" style="color:#991b1b">Server error: ${esc(data.error || String(res.status))}</p>`;
+          return;
+        }
         if (!Array.isArray(data) || data.length === 0) {
           container.innerHTML = '<p class="empty-state">No devices registered yet.</p>';
           return;
@@ -665,7 +675,7 @@
           </table>
         `;
       } catch (e) {
-        container.innerHTML = '<p class="empty-state">Could not load existing devices.</p>';
+        container.innerHTML = `<p class="empty-state" style="color:#991b1b">Network error: ${esc(e.message)}</p>`;
       }
     }
 

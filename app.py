@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request, render_template
 import os
+import json
 import requests
 import csv
 import io
@@ -145,7 +146,6 @@ def get_devices():
             .reset_index(drop=True)
         )
         # Use pandas to_json so NaN is serialized as null (not NaN literal)
-        import json as _json
         return app.response_class(
             response=user_df.to_json(orient='records'),
             mimetype='application/json'
@@ -207,12 +207,14 @@ def get_admin_status():
         for emp in employees:
             emp_email = emp['email'].lower()
             if emp_email in submitted_emails:
-                emp_devices = (
-                    devices_df[devices_df['submitted_by'].str.lower() == emp_email]
-                    [['device_name', 'serial_number', 'submitted_at']]
+                dev_cols = ['device_name', 'serial_number', 'submitted_at']
+                if 'device_id' in devices_df.columns:
+                    dev_cols.append('device_id')
+                emp_df = (
+                    devices_df[devices_df['submitted_by'].str.lower() == emp_email][dev_cols]
                     .sort_values('submitted_at', ascending=False)
-                    .to_dict(orient='records')
                 )
+                emp_devices = json.loads(emp_df.to_json(orient='records'))
                 completed.append({'name': emp['name'], 'email': emp['email'], 'devices': emp_devices})
             else:
                 pending.append({'name': emp['name'], 'email': emp['email']})
@@ -360,6 +362,52 @@ def update_device(device_id):
 
         df.loc[mask, 'device_name'] = new_name
         df.loc[mask, 'serial_number'] = new_serial
+
+        buf = io.StringIO()
+        df.to_csv(buf, index=False)
+
+        r = _storage_post(
+            f'/v2/storage/tables/{TABLE_ID}/import',
+            files={'data': ('data.csv', buf.getvalue().encode('utf-8'), 'text/csv')},
+            data={'incremental': '0'}
+        )
+        r.raise_for_status()
+
+        _trigger_flow()
+
+        return jsonify({'success': True})
+    except requests.HTTPError as e:
+        return jsonify({'error': f'API error {e.response.status_code}: {e.response.text}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/devices/<device_id>', methods=['DELETE'])
+def delete_device(device_id):
+    user_email = get_user_email()
+    if user_email.lower() not in [e.lower() for e in ADMIN_EMAILS]:
+        return jsonify({'error': 'Forbidden'}), 403
+    if not STORAGE_TOKEN:
+        return jsonify({'error': 'Storage token not configured'}), 500
+
+    try:
+        r = _storage_get(
+            f'/v2/storage/tables/{TABLE_ID}/data-preview',
+            params={'limit': 1000}
+        )
+        if r.status_code == 404:
+            return jsonify({'error': 'Device not found'}), 404
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.text))
+
+        if df.empty or 'device_id' not in df.columns:
+            return jsonify({'error': 'Device not found'}), 404
+
+        mask = df['device_id'].astype(str) == device_id
+        if not mask.any():
+            return jsonify({'error': 'Device not found'}), 404
+
+        df = df[~mask]
 
         buf = io.StringIO()
         df.to_csv(buf, index=False)

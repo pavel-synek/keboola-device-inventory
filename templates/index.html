@@ -441,6 +441,23 @@
 
     .devices-table .action-col { width: 70px; text-align: right; }
 
+    /* ── Admin delete button ── */
+    .btn-delete {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #e05252;
+      background: transparent;
+      border: 1.5px solid #fecaca;
+      border-radius: 6px;
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn-delete:hover { background: #fff8f8; border-color: #e05252; }
+    .btn-delete:disabled { opacity: 0.5; cursor: not-allowed; }
+
     /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner {
@@ -599,6 +616,30 @@
       }
     }
 
+    async function adminDeleteDevice(btn) {
+      const deviceId = btn.dataset.id;
+      const deviceName = btn.dataset.name;
+      if (!confirm(`Opravdu smazat zařízení "${deviceName}"?`)) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner gray"></span>';
+      try {
+        const res = await fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          alert('Error: ' + (data.error || res.status));
+          btn.disabled = false;
+          btn.textContent = 'Delete';
+        } else {
+          loadAdminStatus();
+          loadExistingDevices();
+        }
+      } catch (e) {
+        alert('Network error: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+      }
+    }
+
     async function loadAdminStatus() {
       const summary = document.getElementById('admin-summary');
       const tabs = document.getElementById('admin-tabs');
@@ -645,17 +686,21 @@
         if (data.completed.length === 0) {
           completedEl.innerHTML = '<p class="empty-state">Zatím žádné záznamy.</p>';
         } else {
-          const rows = data.completed.map(e => `
-            <tr>
-              <td>${esc(e.name)}</td>
-              <td><span class="admin-email">${esc(e.email)}</span></td>
-              <td>${e.devices.map(d => `<span class="device-name">${esc(d.device_name)}</span> <span class="serial-badge">${esc(d.serial_number)}</span>`).join('<br>')}</td>
-              <td style="font-size:12px;color:#7a8ba8">${esc(e.devices[0]?.submitted_at ?? '')}</td>
-            </tr>
-          `).join('');
+          const rows = data.completed.map(e =>
+            e.devices.map((d, i) => `
+              <tr>
+                ${i === 0 ? `<td rowspan="${e.devices.length}">${esc(e.name)}</td><td rowspan="${e.devices.length}"><span class="admin-email">${esc(e.email)}</span></td>` : ''}
+                <td><span class="device-name">${esc(d.device_name)}</span> <span class="serial-badge">${esc(d.serial_number)}</span></td>
+                <td style="font-size:12px;color:#7a8ba8">${esc(d.submitted_at ?? '')}</td>
+                <td style="text-align:right">${d.device_id
+                  ? `<button class="btn-delete" data-id="${esc(d.device_id)}" data-name="${esc(d.device_name)}" onclick="adminDeleteDevice(this)">Delete</button>`
+                  : ''}</td>
+              </tr>
+            `).join('')
+          ).join('');
           completedEl.innerHTML = `
             <table class="admin-table">
-              <thead><tr><th>Jméno</th><th>Email</th><th>Zařízení</th><th>Odesláno</th></tr></thead>
+              <thead><tr><th>Jméno</th><th>Email</th><th>Zařízení</th><th>Odesláno</th><th></th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           `;

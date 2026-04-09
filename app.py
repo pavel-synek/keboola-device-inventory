@@ -136,11 +136,10 @@ def get_devices():
         df = pd.read_csv(io.StringIO(r.text))
         if df.empty or 'submitted_by' not in df.columns:
             return jsonify([])
+        # Replace all NaN/empty with None so JSON serializes as null, not NaN
+        df = df.where(pd.notna(df), None)
         cols = ['device_name', 'serial_number', 'submitted_at']
         if 'device_id' in df.columns:
-            # Replace NaN/empty with None so JSON serializes as null (not NaN)
-            df['device_id'] = df['device_id'].where(pd.notna(df['device_id']), None)
-            df['device_id'] = df['device_id'].replace('', None)
             cols.append('device_id')
         user_df = (
             df[df['submitted_by'].str.lower() == user_email.lower()][cols]
@@ -299,6 +298,7 @@ def update_device(device_id):
             return jsonify({'error': 'Device not found'}), 404
         r.raise_for_status()
         df = pd.read_csv(io.StringIO(r.text))
+        df = df.where(pd.notna(df), None)
 
         if df.empty or 'device_id' not in df.columns:
             return jsonify({'error': 'Device not found'}), 404

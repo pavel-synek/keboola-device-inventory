@@ -137,6 +137,9 @@ def get_devices():
             return jsonify([])
         cols = ['device_name', 'serial_number', 'submitted_at']
         if 'device_id' in df.columns:
+            # Replace NaN/empty with None so JSON serializes as null (not NaN)
+            df['device_id'] = df['device_id'].where(pd.notna(df['device_id']), None)
+            df['device_id'] = df['device_id'].replace('', None)
             cols.append('device_id')
         user_df = (
             df[df['submitted_by'] == user_email][cols]

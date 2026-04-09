@@ -3,6 +3,7 @@ import os
 import requests
 import csv
 import io
+import uuid
 import pandas as pd
 from datetime import datetime, timezone
 
@@ -103,7 +104,7 @@ def ensure_bucket_and_table():
     r = _storage_post(
         f'/v2/storage/buckets/{BUCKET_ID}/tables',
         files={'data': ('data.csv',
-                        b'submitted_by,device_name,serial_number,submitted_at\n',
+                        b'submitted_by,device_name,serial_number,submitted_at,device_id\n',
                         'text/csv')},
         data={'name': 'devices'}
     )
@@ -134,10 +135,11 @@ def get_devices():
         df = pd.read_csv(io.StringIO(r.text))
         if df.empty or 'submitted_by' not in df.columns:
             return jsonify([])
+        cols = ['device_name', 'serial_number', 'submitted_at']
+        if 'device_id' in df.columns:
+            cols.append('device_id')
         user_df = (
-            df[df['submitted_by'] == user_email][
-                ['device_name', 'serial_number', 'submitted_at']
-            ]
+            df[df['submitted_by'] == user_email][cols]
             .sort_values('submitted_at', ascending=False)
             .reset_index(drop=True)
         )
@@ -240,7 +242,7 @@ def post_devices():
 
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(['submitted_by', 'device_name', 'serial_number', 'submitted_at'])
+        w.writerow(['submitted_by', 'device_name', 'serial_number', 'submitted_at', 'device_id'])
         now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         for d in devices:
             w.writerow([
@@ -248,6 +250,7 @@ def post_devices():
                 d.get('device_name', '').strip(),
                 d.get('serial_number', '').strip(),
                 now,
+                str(uuid.uuid4()),
             ])
 
         r = _storage_post(
@@ -260,6 +263,63 @@ def post_devices():
         _trigger_flow()
 
         return jsonify({'success': True, 'count': len(devices)})
+    except requests.HTTPError as e:
+        return jsonify({'error': f'API error {e.response.status_code}: {e.response.text}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/devices/<device_id>', methods=['PUT'])
+def update_device(device_id):
+    user_email = get_user_email()
+    body = request.get_json(silent=True) or {}
+
+    if not user_email:
+        user_email = body.get('email', '').strip()
+    if not user_email or '@' not in user_email:
+        return jsonify({'error': 'Valid email required'}), 400
+    if not STORAGE_TOKEN:
+        return jsonify({'error': 'Storage token not configured'}), 500
+
+    new_name = body.get('device_name', '').strip()
+    new_serial = body.get('serial_number', '').strip()
+    if not new_name or not new_serial:
+        return jsonify({'error': 'Device name and serial number are required'}), 400
+
+    try:
+        r = _storage_get(
+            f'/v2/storage/tables/{TABLE_ID}/data-preview',
+            params={'limit': 1000}
+        )
+        if r.status_code == 404:
+            return jsonify({'error': 'Device not found'}), 404
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.text))
+
+        if df.empty or 'device_id' not in df.columns:
+            return jsonify({'error': 'Device not found'}), 404
+
+        mask = (df['device_id'].astype(str) == device_id) & \
+               (df['submitted_by'].str.lower() == user_email.lower())
+        if not mask.any():
+            return jsonify({'error': 'Device not found'}), 404
+
+        df.loc[mask, 'device_name'] = new_name
+        df.loc[mask, 'serial_number'] = new_serial
+
+        buf = io.StringIO()
+        df.to_csv(buf, index=False)
+
+        r = _storage_post(
+            f'/v2/storage/tables/{TABLE_ID}/import',
+            files={'data': ('data.csv', buf.getvalue().encode('utf-8'), 'text/csv')},
+            data={'incremental': '0'}
+        )
+        r.raise_for_status()
+
+        _trigger_flow()
+
+        return jsonify({'success': True})
     except requests.HTTPError as e:
         return jsonify({'error': f'API error {e.response.status_code}: {e.response.text}'}), 500
     except Exception as e:

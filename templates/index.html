@@ -379,6 +379,68 @@
     }
     .tab-btn:hover:not(.active) { background: #e8f2ff; border-color: #228DFF; color: #228DFF; }
 
+    /* ── Edit button ── */
+    .btn-edit {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #228DFF;
+      background: transparent;
+      border: 1.5px solid #cde0ff;
+      border-radius: 6px;
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn-edit:hover { background: #f0f6ff; border-color: #228DFF; }
+
+    .btn-save-edit {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #fff;
+      background: #228DFF;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-right: 4px;
+    }
+    .btn-save-edit:hover:not(:disabled) { background: #1a7be8; }
+    .btn-save-edit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .btn-cancel-edit {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #7a8ba8;
+      background: transparent;
+      border: 1.5px solid #dce4f0;
+      border-radius: 6px;
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-cancel-edit:hover { background: #f5f7fb; }
+
+    .edit-input {
+      width: 100%;
+      background: #ffffff;
+      border: 1.5px solid #228DFF;
+      border-radius: 6px;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 13px;
+      color: #0d1f3c;
+      padding: 5px 9px;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(34, 141, 255, 0.10);
+    }
+    .edit-input.error { border-color: #e05252; box-shadow: 0 0 0 3px rgba(224, 82, 82, 0.10); }
+
+    .devices-table .action-col { width: 70px; text-align: right; }
+
     /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner {
@@ -588,14 +650,7 @@
           return;
         }
 
-        const rows = data.map(d => `
-          <tr>
-            <td><span class="device-name">${esc(d.device_name)}</span></td>
-            <td><span class="serial-badge">${esc(d.serial_number)}</span></td>
-            <td>${esc(d.submitted_at)}</td>
-          </tr>
-        `).join('');
-
+        const rows = data.map(d => buildDeviceRow(d)).join('');
         container.innerHTML = `
           <table class="devices-table">
             <thead>
@@ -603,13 +658,89 @@
                 <th>Device Name</th>
                 <th>Serial Number</th>
                 <th>Registered At</th>
+                <th class="action-col"></th>
               </tr>
             </thead>
-            <tbody>${rows}</tbody>
+            <tbody id="devices-tbody">${rows}</tbody>
           </table>
         `;
       } catch (e) {
         container.innerHTML = '<p class="empty-state">Could not load existing devices.</p>';
+      }
+    }
+
+    function buildDeviceRow(d) {
+      const editBtn = d.device_id
+        ? `<button class="btn-edit"
+              data-id="${esc(d.device_id)}"
+              data-name="${esc(d.device_name)}"
+              data-serial="${esc(d.serial_number)}"
+              onclick="startEdit(this)">Edit</button>`
+        : '';
+      return `
+        <tr data-device-id="${esc(d.device_id || '')}">
+          <td><span class="device-name">${esc(d.device_name)}</span></td>
+          <td><span class="serial-badge">${esc(d.serial_number)}</span></td>
+          <td>${esc(d.submitted_at)}</td>
+          <td class="action-col">${editBtn}</td>
+        </tr>
+      `;
+    }
+
+    function startEdit(btn) {
+      const deviceId = btn.dataset.id;
+      const currentName = btn.dataset.name;
+      const currentSerial = btn.dataset.serial;
+      const row = btn.closest('tr');
+      row.innerHTML = `
+        <td><input class="edit-input" id="edit-name-${esc(deviceId)}" type="text" value="${esc(currentName)}"></td>
+        <td><input class="edit-input" id="edit-serial-${esc(deviceId)}" type="text" value="${esc(currentSerial)}"></td>
+        <td></td>
+        <td class="action-col" style="white-space:nowrap">
+          <button class="btn-save-edit" id="btn-save-${esc(deviceId)}" onclick="saveEdit('${esc(deviceId)}')">Save</button>
+          <button class="btn-cancel-edit" onclick="loadExistingDevices()">Cancel</button>
+        </td>
+      `;
+      document.getElementById(`edit-name-${deviceId}`)?.focus();
+    }
+
+    async function saveEdit(deviceId) {
+      const nameEl   = document.getElementById(`edit-name-${deviceId}`);
+      const serialEl = document.getElementById(`edit-serial-${deviceId}`);
+      const saveBtn  = document.getElementById(`btn-save-${deviceId}`);
+      if (!nameEl || !serialEl) return;
+
+      const name   = nameEl.value.trim();
+      const serial = serialEl.value.trim();
+
+      nameEl.classList.toggle('error', !name);
+      serialEl.classList.toggle('error', !serial);
+      if (!name || !serial) return;
+
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner"></span>';
+
+      try {
+        const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_name: name, serial_number: serial }),
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          showError(data.error || 'Update failed.');
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+        } else {
+          showSuccess('Device updated successfully!');
+          loadExistingDevices();
+          if (IS_ADMIN) loadAdminStatus();
+        }
+      } catch (e) {
+        showError('Network error. Please try again.');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
       }
     }
 

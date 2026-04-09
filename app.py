@@ -275,6 +275,54 @@ def post_devices():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/admin/backfill-device-ids', methods=['POST'])
+def backfill_device_ids():
+    user_email = get_user_email()
+    if user_email.lower() not in [e.lower() for e in ADMIN_EMAILS]:
+        return jsonify({'error': 'Forbidden'}), 403
+    if not STORAGE_TOKEN:
+        return jsonify({'error': 'Storage token not configured'}), 500
+
+    try:
+        r = _storage_get(
+            f'/v2/storage/tables/{TABLE_ID}/data-preview',
+            params={'limit': 1000}
+        )
+        if r.status_code == 404:
+            return jsonify({'error': 'Table not found'}), 404
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.text))
+
+        if df.empty:
+            return jsonify({'filled': 0})
+
+        if 'device_id' not in df.columns:
+            df['device_id'] = None
+
+        missing = df['device_id'].isna() | (df['device_id'].astype(str).str.strip() == '')
+        count = int(missing.sum())
+        if count == 0:
+            return jsonify({'filled': 0, 'message': 'All records already have device_id'})
+
+        df.loc[missing, 'device_id'] = [str(uuid.uuid4()) for _ in range(count)]
+
+        buf = io.StringIO()
+        df.to_csv(buf, index=False)
+
+        r = _storage_post(
+            f'/v2/storage/tables/{TABLE_ID}/import',
+            files={'data': ('data.csv', buf.getvalue().encode('utf-8'), 'text/csv')},
+            data={'incremental': '0'}
+        )
+        r.raise_for_status()
+
+        return jsonify({'filled': count})
+    except requests.HTTPError as e:
+        return jsonify({'error': f'API error {e.response.status_code}: {e.response.text}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/devices/<device_id>', methods=['PUT'])
 def update_device(device_id):
     user_email = get_user_email()

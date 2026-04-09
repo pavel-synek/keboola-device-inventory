@@ -493,7 +493,10 @@
     <div class="admin-panel">
       <div class="admin-panel-header">
         <div class="admin-panel-title">Device Inventory Status</div>
-        <button class="btn-download" id="btn-download" disabled onclick="downloadAdminCSV()">&#8595; Download CSV</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-download" id="btn-backfill" onclick="backfillDeviceIds()" title="Generate missing device IDs for older records">&#9881; Backfill IDs</button>
+          <button class="btn-download" id="btn-download" disabled onclick="downloadAdminCSV()">&#8595; Download CSV</button>
+        </div>
       </div>
       <div id="admin-summary" class="admin-summary">
         <span class="spinner gray"></span> Loading…
@@ -570,6 +573,30 @@
       a.download = `device-inventory-${new Date().toISOString().slice(0,10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+    }
+
+    async function backfillDeviceIds() {
+      const btn = document.getElementById('btn-backfill');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner gray"></span>';
+      try {
+        const res = await fetch('/api/admin/backfill-device-ids', { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+          alert('Error: ' + data.error);
+        } else if (data.filled === 0) {
+          alert('All records already have a device ID.');
+        } else {
+          alert(`Done! Generated device IDs for ${data.filled} record(s).`);
+          loadExistingDevices();
+          loadAdminStatus();
+        }
+      } catch (e) {
+        alert('Network error: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '&#9881; Backfill IDs';
+      }
     }
 
     async function loadAdminStatus() {
